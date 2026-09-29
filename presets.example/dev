@@ -1,0 +1,3 @@
+cd ~/project && claude -w feature-a
+cd ~/project && claude -w feature-b
+cd ~/project && ls

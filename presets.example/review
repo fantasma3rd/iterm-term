@@ -1,0 +1,2 @@
+cd ~/project && git status
+cd ~/project && git diff
