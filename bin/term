@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# term — call a named iTerm2 pane layout, or a plain N-way split, from the shell.
+#
+# Usage:
+#   term <preset-name>   # runs ~/.config/term/presets/<preset-name>,
+#                         # one pane per line, each line is the exact command for that pane
+#   term <N>              # N empty panes, no commands
+set -euo pipefail
+
+PRESET_DIR="${TERM_PRESET_DIR:-$HOME/.config/term/presets}"
+
+usage() {
+  echo "usage: term <preset-name|split-count>" >&2
+  exit 1
+}
+
+escape() {
+  # Escape \ and " so $1 can be embedded in an AppleScript string literal.
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+[ $# -eq 1 ] || usage
+ARG="$1"
+
+COMMANDS=()
+
+if [[ "$ARG" =~ ^[0-9]+$ ]] && [ "$ARG" -ge 1 ]; then
+  for ((i = 0; i < ARG; i++)); do
+    COMMANDS+=("")
+  done
+else
+  PRESET_FILE="$PRESET_DIR/$ARG"
+  if [ ! -f "$PRESET_FILE" ]; then
+    echo "term: preset not found: $PRESET_FILE" >&2
+    echo "available presets:" >&2
+    ls "$PRESET_DIR" >&2 2>/dev/null
+    exit 1
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] && COMMANDS+=("$line")
+  done < "$PRESET_FILE"
+fi
+
+COUNT=${#COMMANDS[@]}
+[ "$COUNT" -ge 1 ] || { echo "term: preset '$ARG' is empty" >&2; exit 1; }
+
+next_pane=1
+
+# Recursively split `pane` into `count` roughly-equal cells (a balanced
+# binary split, alternating direction each level), filling
+# COMMANDS[start .. start+count-1] into the resulting leaves.
+# For an odd count, the first (left/top) branch is the smaller, undivided
+# side and the second (right/bottom) branch is the one that gets split further.
+layout() {
+  local pane="$1" start="$2" count="$3" dir="$4"
+
+  if [ "$count" -le 1 ]; then
+    if [ -n "${COMMANDS[$start]}" ]; then
+      echo "tell $pane"
+      echo "  write text \"$(escape "${COMMANDS[$start]}")\""
+      echo "end tell"
+    fi
+    return
+  fi
+
+  local right_count=$(( (count + 1) / 2 ))
+  local left_count=$(( count - right_count ))
+  next_pane=$((next_pane + 1))
+  local new_pane="p${next_pane}"
+  local direction next_dir
+  if [ "$dir" = v ]; then direction=vertically; next_dir=h; else direction=horizontally; next_dir=v; fi
+
+  echo "tell $pane"
+  echo "  set $new_pane to (split ${direction} with default profile)"
+  echo "end tell"
+
+  layout "$pane" "$start" "$left_count" "$next_dir"
+  layout "$new_pane" "$((start + left_count))" "$right_count" "$next_dir"
+}
+
+{
+  echo 'tell application "iTerm2"'
+  echo 'set p1 to current session of current window'
+  layout p1 0 "$COUNT" v
+  echo 'end tell'
+} | if [ "${TERM_DRY_RUN:-0}" = "1" ]; then cat; else osascript >/dev/null; fi
