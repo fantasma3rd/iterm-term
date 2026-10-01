@@ -5,9 +5,11 @@
 #   term <preset-name>   # runs ~/.config/term/presets/<preset-name>,
 #                         # one pane per line, each line is the exact command for that pane
 #   term <N>              # N empty panes, no commands
+#   term -f <preset-name|N>  # skip the sanity check for 17+ panes
 set -euo pipefail
 
 PRESET_DIR="${TERM_PRESET_DIR:-$HOME/.config/term/presets}"
+SANITY_LIMIT=17
 
 usage() {
   echo "usage: term <preset-name|split-count>" >&2
@@ -18,6 +20,12 @@ escape() {
   # Escape \ and " so $1 can be embedded in an AppleScript string literal.
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
+
+FORCE=0
+if [ "${1:-}" = "-f" ]; then
+  FORCE=1
+  shift
+fi
 
 [ $# -eq 1 ] || usage
 ARG="$1"
@@ -43,6 +51,11 @@ fi
 
 COUNT=${#COMMANDS[@]}
 [ "$COUNT" -ge 1 ] || { echo "term: preset '$ARG' is empty" >&2; exit 1; }
+
+if [ "$COUNT" -ge "$SANITY_LIMIT" ] && [ "$FORCE" -ne 1 ]; then
+  echo "term: Are you crazy...? Why so many panes?" >&2
+  exit 1
+fi
 
 next_pane=1
 
